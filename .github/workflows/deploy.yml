@@ -1,0 +1,63 @@
+name: Build and Deploy to Cloud Run Job
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  JOB_NAME: toto-job-node
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-jobs/${{ env.JOB_NAME }}:${{ github.sha }} .
+          docker tag ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-jobs/${{ env.JOB_NAME }}:${{ github.sha }} \
+                     ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-jobs/${{ env.JOB_NAME }}:latest
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-jobs/${{ env.JOB_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-jobs/${{ env.JOB_NAME }}:latest
+
+      - name: Deploy to Cloud Run Job
+        run: |
+          gcloud run jobs deploy ${{ env.JOB_NAME }} \
+            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-jobs/${{ env.JOB_NAME }}:${{ github.sha }} \
+            --region=${{ env.REGION }} \
+            --max-retries=3 \
+            --task-timeout=300s \
+            --set-env-vars="NODE_ENV=production"
+
+      - name: Job deployment successful
+        run: |
+          echo "✅ Job deployed successfully!"
+          echo "Job Name: ${{ env.JOB_NAME }}"
+          echo "Region: ${{ env.REGION }}"
+          echo "Image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-jobs/${{ env.JOB_NAME }}:${{ github.sha }}"
