@@ -3,12 +3,13 @@ name: Build and Deploy to Cloud Run Job
 on:
   push:
     branches:
-      - feature/*
+      - 'feature/**'
+      - main
   workflow_dispatch:
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: ${{ secrets.GCP_REGION }}
+  PROJECT_ID: totoexperiments
+  REGION:  europe-west1
   JOB_NAME: toto-job-node
 
 jobs:
@@ -26,7 +27,7 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: ${{ secrets.CICD_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
