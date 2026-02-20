@@ -61,7 +61,8 @@ jobs:
             --region=${{ env.REGION }} \
             --max-retries=3 \
             --task-timeout=300s \
-            --set-env-vars="NODE_ENV=production"
+            --set-env-vars="NODE_ENV=production" \
+            --service-account=${{ env.PACKAGE_NAME}}@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
 
       - name: Job deployment successful
         run: |

@@ -11,6 +11,8 @@ export class SimpleAgent {
             model: vertexAI.model('gemini-2.0-flash-lite')
         });
 
+        const names = ["let mælk", "riskiks", "leverpostej", "bread", "eggs", "cheese", "butter", "apples", "bananas", "oranges", "chicken", "beef"];
+
         const finalOutputSchema = z.object({
             items: z.array(z.string().describe("Name of the item in the grocery shopping list. Only the name.")).describe("List of items in the shopping list")
         })
@@ -28,6 +30,10 @@ export class SimpleAgent {
 
                 Your task is to create the groceries shopping list from the transcript and CORRECT all the mispelled or misinterpreted item names. 
 
+                These are the most common items picked by the user: ${JSON.stringify(names)}.
+                
+                Use this list to try to reconcile names whenever you have a doubt. 
+
                 ## Your task: 
                 Create the groceries shopping list from the following transcription of the user's desires of items to be added to the list: 
                 ${message} 
@@ -37,8 +43,71 @@ export class SimpleAgent {
             }
         });
 
-        console.log(extractedList.output!);
+        // 2. Evaluate and iterate
+        let attempts = 0;
+        let evaluation;
+        let evaluationsHistory = [];
+        while (attempts < 3) {
 
+            // Evaluate the output
+            evaluation = await ai.generate({
+                prompt: `
+                    Evaluate the following list of items extracted from the user's transcription and correct it if you find any mistake. 
+                    The list of items is: ${JSON.stringify(extractedList.output?.items)}. 
+                    
+                    The user's transcription is the following: ${message}. 
+                    
+                    Remember that the most common items picked by the user are: ${JSON.stringify(names)}. 
 
+                    ## Your task: 
+                    If you find any thing that looks like a mistake, propose a correction and explain why you think it's a mistake. 
+
+                    ## Rules
+                    - DO NOT change anything, just propose corrections.
+                    - Make sure to double check with the user's transcript, because the previous extractor might have truncated or simplified some item names, removing important terms to understand the context. 
+                        *An important example is "Bacon i tern", which might be truncated to "Bacon" but it's actually a specific type of bacon that the user usually buys and that is important to keep in the list.*
+                    - Corrections are not mandatory. Only propose a correction if you are really sure that there is a mistake and that you know what the user meant.
+                    - If the correction is the same as the corrected (extracted) item name, then it's not a correction and you should not propose it.
+                `,
+                output: {
+                    schema: z.object({
+                        items: z.array(z.object({
+                            name: z.string().describe("Original name of the item extracted from the user's transcription, with possible mistakes."),
+                            correction: z.string().optional().nullable().describe("Proposed correction for the item name, if a mistake was found."),
+                            reason: z.string().optional().nullable().describe("Explanation for why the correction was proposed."),
+                        }))
+                    })
+                }
+            });
+
+            evaluationsHistory.push(evaluation.output?.items || []);
+
+            // Check if there are any corrections proposed, if not, we can stop the iteration
+            const correctionsProposed = evaluation.output?.items.filter(item => item.correction);
+            if (!correctionsProposed || correctionsProposed.length === 0) {
+                break;
+            }
+
+            // Refine 
+            extractedList = await ai.generate({
+                prompt: `
+                    The following list of items was extracted from the user's transcription: ${JSON.stringify(extractedList.output?.items)}. 
+                    An agent has evaluated this list and proposed the following corrections: ${JSON.stringify(evaluation.output)}.
+                    
+                    ## Your task: 
+                    Refine the list of items based on the proposed corrections and explanations. 
+                    If a correction is proposed and the reason is valid, apply the correction to the item name. 
+                `,
+                output: {
+                    schema: finalOutputSchema
+                }
+
+            });
+
+            attempts++;
+        }
+
+        console.log(extractedList.output);
+        
     }
 }
